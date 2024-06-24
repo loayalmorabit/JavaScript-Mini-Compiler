@@ -1,0 +1,287 @@
+options {
+    static = true;
+    IGNORE_CASE = false;
+}
+
+PARSER_BEGIN(JsCompiler)
+package lib;
+
+import nodes.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+public class JsCompiler {
+    private static HashMap<String, Double> variables = new HashMap<>();
+
+    public static void main(String[] args) throws ParseException {
+        System.out.println("Let's Dive In");
+        JsCompiler parser = new JsCompiler(System.in);
+        treeNode n = parser.start();
+        System.out.println("Parsing completed, executing the tree...");
+         try {
+            n.execute();
+        } catch (RuntimeException e) {
+            System.err.println("Execution error: " + e.getMessage());
+        }
+    }
+    
+    public static void assignVariable(String variableName, double value) {
+        variables.put(variableName, value);
+    }
+
+    public static double getVariableValue(String variableName) {
+        if (variables.containsKey(variableName)) {
+            return variables.get(variableName);
+        } else {
+            throw new RuntimeException("Variable " + variableName + " not defined.");
+        }
+    }
+
+    public static void printResult(double result) {
+        if (result == (int) result) {
+            System.out.println((int) result);
+        } else {
+            System.out.println(result);
+        }
+    }
+}
+
+PARSER_END(JsCompiler)
+
+TOKEN : {
+    < LET : "let" >
+    | < CONST : "const" >
+    | < LOG : "log" >
+    | < IF : "if" >
+    | < ELSE : "else" >
+    | < FOR : "for" >
+    | < WHILE : "while" >
+    | < DO : "do" >
+    | < SWITCH : "switch" >
+    | < CASE : "case" >
+    | < DEF : "default" >
+    | < BREAK : "break" >
+    | < IDENTIFIER : (["a"-"z","A"-"Z"])(["a"-"z","A"-"Z","0"-"9"])* >
+    | < NUMBER : (["0"-"9"])+ ("." (["0"-"9"])+)? >
+    | < PLUS : "+" >
+    | < MINUS : "-" >
+    | < MULTIPLY : "*" >
+    | < DIVIDE : "/" >
+    | < POWER : "^" >
+    | < LPAREN : "(" >
+    | < RPAREN : ")" >
+    | < EQUAL : "=" >
+    | < SEMICOLON : ";" >
+    | < COLON : ":" >
+    | < LBRACE : "{" >
+    | < RBRACE : "}" >
+    | <	GT : ">" >
+  	| <	LT : "<" >
+  	| <	GE : ">=" >
+  	| <	LE : "<=" >
+  	| <	EQ : "==" >
+ 	| <	NE : "!=" >
+}
+
+SKIP : { "\n" | "\r" | "\t" | " " }
+
+treeNode start() throws ParseException :
+{
+    treeNode n;
+}
+{
+    n = statements()
+    { return n; }
+}
+
+statementsNode statements() throws ParseException :
+{
+    statementsNode s = new statementsNode();
+    treeNode n;
+}
+{
+    (n = statement() { s.addChild(n); })*
+    { return s; }
+}
+
+treeNode statement() throws ParseException :
+{
+    treeNode n;
+}
+{
+    ( n = assignmentStatement()
+    | n = outputNode()
+    | n = ifStatement()
+    | n = forNode()
+    | n = whileStatement()
+    | n = doWhileStatement()
+    | n = switchStatement()
+    | n = breakStatement()
+    ) 
+    { return n; }
+}
+
+assignmentNode assignmentStatement() throws ParseException :
+{
+    Token t1;
+    treeNode expr;
+}
+{
+    ( <LET> t1 = <IDENTIFIER> <EQUAL> expr = expression() <SEMICOLON>
+    { return new assignmentNode(t1.image, expr); }
+    |
+    t1 = <IDENTIFIER> <EQUAL> expr = expression() <SEMICOLON>
+    { return new assignmentNode(t1.image, expr); }
+    )
+}
+
+outputNode outputNode() throws ParseException :
+{
+    treeNode expr;
+}
+{
+    <LOG> expr = expression() <SEMICOLON>
+    { return new outputNode(expr); }
+}
+
+ifNode ifStatement() throws ParseException :
+{
+    treeNode condition, thenPart, elsePart = null;
+}
+{
+    <IF> <LPAREN> condition = comparison() <RPAREN> <LBRACE> thenPart = statements() <RBRACE> 
+    ( <ELSE> <LBRACE> elsePart = statements() <RBRACE> )?
+    { return new ifNode(condition, thenPart, elsePart); }
+}
+
+forNode forNode() throws ParseException :
+{
+    treeNode init = null, condition = null, update = null, body = null;
+}
+{
+    <FOR> <LPAREN> init = assignmentStatement() condition = comparison() <SEMICOLON> update = assignmentStatement() <RPAREN> <LBRACE> body = statements() <RBRACE>
+    { return new forNode(init, condition, update, body); }
+}
+
+whileNode whileStatement() throws ParseException :
+{
+    treeNode condition = null, body = null;
+}
+{
+    <WHILE> <LPAREN> condition = comparison() <RPAREN> <LBRACE> body = statements() <RBRACE>
+    { return new whileNode(condition, body); }
+}
+
+doWhileNode doWhileStatement() throws ParseException :
+{
+    treeNode body = null, condition = null;
+}
+{
+    <DO> <LBRACE> body = statements() <RBRACE> <WHILE> <LPAREN> condition = comparison() <RPAREN> <SEMICOLON>
+    { return new doWhileNode(body, condition); }
+}
+
+switchNode switchStatement() throws ParseException :
+{
+    treeNode expr = null;
+    switchCaseNode sc = null;
+    List<switchCaseNode> scl = new ArrayList<>();
+}
+{
+    <SWITCH> <LPAREN> expr = expression() <RPAREN> <LBRACE> 
+    ( sc = switchCase() { scl.add(sc); } )*
+    <RBRACE>
+    { return new switchNode(expr, scl); }
+}
+
+switchCaseNode switchCase() throws ParseException :
+{
+    Token t = null;
+    List<treeNode> body = new ArrayList<>();
+    boolean isDefault = false;
+    treeNode n;
+}
+{
+    (<CASE> t = <NUMBER> <COLON> (n = statement() { body.add(n); })* | <DEF> <COLON> { isDefault = true; } (n = statement() { body.add(n); })*)
+    { return new switchCaseNode(t != null ? t.image : null, isDefault, body); }
+}
+
+breakNode breakStatement() throws ParseException :
+{
+}
+{
+    <BREAK> <SEMICOLON>
+    { return new breakNode(); }
+}
+
+expressionNode expression() throws ParseException :
+{
+    expressionNode e = new expressionNode();
+    treeNode left, right;
+    stringNode op;
+    Token t;
+}
+{
+    left = term() { e.addChild(left); }
+    (
+        (t = <PLUS> | t = <MINUS>) 
+        { op = new stringNode(t.image); }
+        right = term() 
+        { e.addChild(op); e.addChild(right); }
+    )*
+    { return e; }
+}
+
+comparisonNode comparison() throws ParseException :
+{
+    comparisonNode c = new comparisonNode();
+    treeNode left, right;
+    stringNode op;
+    Token t;
+}
+{
+    left = term() { c.addChild(left); }
+    (
+        (t = <GT> | t = <LT> | t = <GE> | t = <LE> | t = <EQ> | t = <NE>)
+        { op = new stringNode(t.image); }
+        right = term()
+        { c.addChild(op); c.addChild(right); }
+    )*
+    { return c; }
+}
+
+termNode term() throws ParseException :
+{
+    termNode t = new termNode();
+    treeNode left, right;
+    stringNode op;
+    Token tok;
+}
+{
+    left = factor() { t.addChild(left); }
+    (
+        (tok = <MULTIPLY> | tok = <DIVIDE>)
+        { op = new stringNode(tok.image); }
+        right = factor() 
+        { t.addChild(op); t.addChild(right); }
+    )*
+    { return t; }
+}
+
+factorNode factor() throws ParseException :
+{
+    factorNode f = null;
+    Token tok;
+    treeNode expr;
+}
+{
+    (tok = <NUMBER>
+    { f = new constNode(tok.image); }
+    | <LPAREN> expr = expression() <RPAREN>
+    { f = new factorNode(expr); }
+    | tok = <IDENTIFIER>
+    { f = new variableNode(tok.image); }
+    )
+    { return f; }
+}
